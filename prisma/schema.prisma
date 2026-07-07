@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  
+}
+
+// --- admin and editor 
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String   // পাসওয়ার্ড হ্যাশ করে রাখবো
+  role      Role     @default(EDITOR)
+  news      News[]   
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+}
+
+
+
+// catagory model
+model Category {
+  id          String   @id @default(cuid())
+  nameBn      String   // বাংলা নাম (যেমন: "খেলাধুলা")
+  nameEn      String   // ইংরেজি নাম (যেমন: "Sports")
+  slug        String   @unique // URL সবসময় ইংরেজি হবে (যেমন: "sports")
+  
+  news        News[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// location model
+model District {
+  id          String    @id @default(cuid())
+  nameBn      String    // বাংলা নাম (যেমন: "ঢাকা")
+  nameEn      String    // ইংরেজি নাম (যেমন: "Dhaka")
+  
+  upazilas    Upazila[]
+  news        News[]
+}
+
+model Upazila {
+  id          String    @id @default(cuid())
+  nameBn      String    
+  nameEn      String    
+  districtId  String
+  district    District  @relation(fields: [districtId], references: [id])
+  
+  unions      Union[]
+  news        News[]
+}
+
+model Union {
+  id          String    @id @default(cuid())
+  nameBn      String    
+  nameEn      String    
+  upazilaId   String
+  upazila     Upazila   @relation(fields: [upazilaId], references: [id])
+  
+  news        News[]
+}
+
+
+
+
+model Advertisement {
+  id          String   @id @default(cuid())
+  title       String
+  imageUrl    String   
+  link        String?  
+  buttonText  String?  
+  position    String   
+  newsId      String?  
+  isActive    Boolean  @default(true)
+  endDate     DateTime? // Auto off hovik time (Optional)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+
+
+
+// news model
+model News {
+  id           String    @id @default(uuid())
+  title        String
+  subtitle     String?   // 💥 নতুন: সাব-টাইটেল (ঐচ্ছিক)
+  reporterName String?   // 💥 নতুন: প্রতিবেদকের নাম (ঐচ্ছিক)
+  tags         String?   // 💥 নতুন: সংবাদ সম্পর্কিত ট্যাগ (কমা দিয়ে আলাদা করা)
+  content      String    @db.Text
+  thumbnail    String?  
+  views        Int       @default(0) 
+  isPublished  Boolean   @default(false) 
+  
+  // রিলেশনশিপ (কোন এডিটর লিখেছেন এবং কোন ক্যাটাগরির)
+  authorId     String
+  author       User      @relation(fields: [authorId], references: [id])
+  categoryId   String
+  category     Category  @relation(fields: [categoryId], references: [id])
+  
+  // লোকেশন (এগুলো অপশনাল '?' রাখা হয়েছে)
+  districtId   String?
+  district     District? @relation(fields: [districtId], references: [id])
+  upazilaId    String?
+  upazila      Upazila?  @relation(fields: [upazilaId], references: [id])
+  unionId      String?   
+  union        Union?    @relation(fields: [unionId], references: [id])
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
