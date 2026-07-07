@@ -6,13 +6,22 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-// ১. ডাটাবেজ লিংক দিয়ে একটি পুল (Pool) তৈরি করছি
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.DATABASE_URL;
 
-// ২. পুলটিকে প্রিজমা অ্যাডাপ্টারে যুক্ত করছি
+if (!connectionString) {
+  throw new Error("DATABASE_URL is not defined in the environment variables.");
+}
+
+// 💥 Supabase-এর জন্য SSL (Secure) অপশনটি চালু করা হলো
+const pool = new Pool({ 
+  connectionString,
+  ssl: {
+    rejectUnauthorized: false, // এটি লোকাল মেশিনে Supabase এর সাথে কানেক্ট করতে সাহায্য করে
+  }
+});
+
 const adapter = new PrismaPg(pool);
 
-// ৩. নতুন নিয়মে অ্যাডাপ্টার দিয়ে PrismaClient তৈরি করছি
 export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
