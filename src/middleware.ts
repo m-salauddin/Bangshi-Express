@@ -1,58 +1,45 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { AUTH_COOKIE_NAME, verifyAdminToken } from "@/lib/auth";
+import { AUTH_COOKIE_NAME } from "@/lib/auth";
 
 const LOGIN_PATH = "/admin/login";
-const DASHBOARD_PATH = "/admin/dashboard";
 
-// Paths under /admin that must remain reachable WITHOUT a valid session.
-// (logout must work even if the token is already invalid, otherwise you can
-// get stuck.)
+// Admin paths that must stay reachable without a session.
 const PUBLIC_ADMIN_PATHS = new Set<string>([LOGIN_PATH, "/admin/logout"]);
 
-export async function middleware(request: NextRequest) {
+// -----------------------------------------------------------------------------
+// EDGE middleware — intentionally does a CHEAP check only: "is a session cookie
+// present?". It does NOT verify the JWT signature and does NOT read JWT_SECRET.
+//
+// Why: middleware runs on the Edge runtime, which on Vercel is a *separate*
+// deployment target from the Node runtime that signs the token. Verifying the
+// signature here made the app depend on JWT_SECRET being identical in both
+// runtimes — and when it wasn't (the classic Vercel case) every verification
+// failed, the cookie was deleted, and you were bounced to /admin/login on every
+// reload. Real verification now happens in the dashboard's server-component
+// layout (Node runtime, same secret as signing). This is the pattern Next.js
+// officially recommends: optimistic cookie check in middleware, real auth in
+// the data/layout layer.
+// -----------------------------------------------------------------------------
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-  const payload = await verifyAdminToken(token);
-  const isAuthenticated = payload !== null;
 
-  // 1) The login page: if already authenticated, bounce to the dashboard.
-  //    Otherwise let it render (and proactively clear any stale/invalid cookie).
-  if (pathname === LOGIN_PATH) {
-    if (isAuthenticated) {
-      return NextResponse.redirect(new URL(DASHBOARD_PATH, request.url));
-    }
-    const response = NextResponse.next();
-    if (token && !isAuthenticated) {
-      response.cookies.delete(AUTH_COOKIE_NAME);
-    }
-    return response;
-  }
-
-  // 2) Other public admin paths (e.g. logout): always allow through.
+  // Login and logout are always reachable.
   if (PUBLIC_ADMIN_PATHS.has(pathname)) {
     return NextResponse.next();
   }
 
-  // 3) Every protected /admin route: require a valid session.
-  if (!isAuthenticated) {
-    // Redirect the browser to the login page. `next-url` lets the login page
-    // send the user back where they came from after signing in (optional).
-    const loginUrl = new URL(LOGIN_PATH, request.url);
-    const response = NextResponse.redirect(loginUrl);
-    // Clear the bad cookie so we don't loop verifying the same broken token.
-    if (token) {
-      response.cookies.delete(AUTH_COOKIE_NAME);
-    }
-    return response;
+  // Any other /admin route requires the cookie to at least exist. If it's a
+  // forged/expired token, the dashboard layout (server component) will verify
+  // it properly and redirect. We do NOT delete the cookie here.
+  const hasToken = request.cookies.has(AUTH_COOKIE_NAME);
+  if (!hasToken) {
+    return NextResponse.redirect(new URL(LOGIN_PATH, request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  // Run only on admin routes. This intentionally matches RSC data requests
-  // (…?_rsc=) for those same paths so protected data can't be fetched without
-  // a session, while leaving _next static assets and public pages untouched.
   matcher: ["/admin/:path*"],
 };
