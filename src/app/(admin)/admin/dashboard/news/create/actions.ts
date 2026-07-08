@@ -2,12 +2,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
-import { jwtVerify } from "jose";
 import { redirect } from "next/navigation";
-
-const secretKey = new TextEncoder().encode(
-  process.env.JWT_SECRET || "default_secret"
-);
+import { AUTH_COOKIE_NAME, verifyAdminToken } from "@/lib/auth";
 
 export async function createNews(formData: FormData) {
   // ফর্ম থেকে ডাটা নিচ্ছি
@@ -32,17 +28,15 @@ export async function createNews(formData: FormData) {
   }
 
   const cookieStore = await cookies();
-  const token = cookieStore.get("admin_token")?.value;
-  
-  if (!token) return { error: "আপনাকে লগইন করতে হবে!" };
+  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
 
-  let userId = "";
-  try {
-    const { payload } = await jwtVerify(token, secretKey);
-    userId = payload.userId as string;
-  } catch (error) {
+  // Verify using the SHARED helper so this action, the middleware, and the login
+  // action all agree on the secret and algorithm.
+  const payload = await verifyAdminToken(token);
+  if (!payload) {
     return { error: "সেশন শেষ হয়ে গেছে, আবার লগইন করুন।" };
   }
+  const userId = payload.userId;
 
   try {
     await prisma.news.create({

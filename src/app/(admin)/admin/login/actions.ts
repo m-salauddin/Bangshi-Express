@@ -2,96 +2,52 @@
 
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
-import { SignJWT } from "jose";
 import { redirect } from "next/navigation";
-
-// // get the secret key from the environment variable and encode it to Uint8Array
-const secretKey = new TextEncoder().encode(process.env.JWT_SECRET || "default_secret");
+import {
+  AUTH_COOKIE_NAME,
+  getAuthCookieOptions,
+  signAdminToken,
+} from "@/lib/auth";
 
 export async function loginAdmin(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
 
   try {
-    // search user in the database using Prisma
+    // Find the user by email.
     const user = await prisma.user.findUnique({
       where: { email },
     });
 
-    // if user not found or password does not match, return error
+    // Invalid credentials.
     if (!user || user.password !== password) {
-      return { error: "ইমেইল অথবা পাসওয়ার্ড ভুল হয়েছে!" };
+      return { error: "ইমেইল অথবা পাসওয়ার্ড ভুল হয়েছে!" };
     }
 
-    // check user role 
+    // Not an admin.
     if (user.role !== "ADMIN") {
       return { error: "আপনার এই প্যানেলে প্রবেশের অনুমতি নেই!" };
     }
 
-    // JWT token create 
-    const token = await new SignJWT({ userId: user.id, role: user.role })
-      .setProtectedHeader({ alg: "HS256" })
-      .setExpirationTime("1d") 
-      .sign(secretKey);
-
-    // brawser cookie
-    const cookieStore = await cookies();
-    cookieStore.set("admin_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/",
-      maxAge: 60 * 60 * 24, // ১ দিন
+    // Sign the session token using the SHARED helper/secret so the token the
+    // middleware verifies is guaranteed to match what we sign here.
+    const token = await signAdminToken({
+      userId: String(user.id),
+      role: user.role,
     });
+
+    // Set the cookie using the SHARED options (sameSite: "lax", path: "/").
+    const cookieStore = await cookies();
+    cookieStore.set(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
   } catch (error) {
-    return { error: "সার্ভারে কোনো সমস্যা হয়েছে। একটু পর আবার চেষ্টা করুন।" };
+    // NOTE: keep this catch for DB/JWT errors only. `redirect()` below MUST stay
+    // outside the try block: redirect() works by throwing a control-flow signal,
+    // and catching it here would swallow the navigation.
+    console.error("Admin login failed:", error);
+    return { error: "সার্ভারে কোনো সমস্যা হয়েছে। একটু পর আবার চেষ্টা করুন।" };
   }
 
- // if everything is successful, redirect to the admin dashboard
+  // Success — the cookie is now attached to this response. Redirecting from the
+  // server action commits the Set-Cookie header and navigates in one step.
   redirect("/admin/dashboard");
 }
-
-
-
-
-
-
-//
-
-
-
-
-// export async function loginAdmin(formData: FormData) {
-//   const email = formData.get("email") as string;
-//   const password = formData.get("password") as string;
-
-//   console.log("Email:", email);
-//   console.log("Password:", password);
-
-//   const user = await prisma.user.findUnique({
-//     where: { email },
-//   });
-
-//   console.log("User:", user);
-
-//   if (!user) {
-//     console.log("User not found");
-//     return { error: "ইমেইল অথবা পাসওয়ার্ড ভুল হয়েছে!" };
-//   }
-
-//   console.log("DB Password:", user.password);
-//   console.log("Password Match:", user.password === password);
-
-//   if (user.password !== password) {
-//     return { error: "ইমেইল অথবা পাসওয়ার্ড ভুল হয়েছে!" };
-//   }
-
-//   console.log("Role:", user.role);
-
-//   if (user.role !== "ADMIN") {
-//     return { error: "আপনার এই প্যানেলে প্রবেশের অনুমতি নেই!" };
-//   }
-
-//   console.log("Creating JWT...");
-//   // ...
-// }

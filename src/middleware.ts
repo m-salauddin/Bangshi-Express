@@ -1,50 +1,58 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { jwtVerify } from "jose";
+import { AUTH_COOKIE_NAME, verifyAdminToken } from "@/lib/auth";
 
-const secretKey = new TextEncoder().encode(
-  process.env.JWT_SECRET || "default_secret"
-);
+const LOGIN_PATH = "/admin/login";
+const DASHBOARD_PATH = "/admin/dashboard";
+
+// Paths under /admin that must remain reachable WITHOUT a valid session.
+// (logout must work even if the token is already invalid, otherwise you can
+// get stuck.)
+const PUBLIC_ADMIN_PATHS = new Set<string>([LOGIN_PATH, "/admin/logout"]);
 
 export async function middleware(request: NextRequest) {
-  const path = request.nextUrl.pathname;
-  const token = request.cookies.get("admin_token")?.value;
+  const { pathname } = request.nextUrl;
+  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+  const payload = await verifyAdminToken(token);
+  const isAuthenticated = payload !== null;
 
-  // if the user is trying to access the login page
-  if (path === "/admin/login") {
-    if (token) {
-      try {
-        await jwtVerify(token, secretKey);
-        // if the token is valid, redirect the user to the dashboard
-        return NextResponse.redirect(new URL("/admin/dashboard", request.url));
-      } catch (error) {
-        // if the token is invalid or expired, delete the cookie and redirect to the login page
-        const response = NextResponse.next();
-        response.cookies.delete("admin_token");
-        return response;
-      }
+  // 1) The login page: if already authenticated, bounce to the dashboard.
+  //    Otherwise let it render (and proactively clear any stale/invalid cookie).
+  if (pathname === LOGIN_PATH) {
+    if (isAuthenticated) {
+      return NextResponse.redirect(new URL(DASHBOARD_PATH, request.url));
     }
+    const response = NextResponse.next();
+    if (token && !isAuthenticated) {
+      response.cookies.delete(AUTH_COOKIE_NAME);
+    }
+    return response;
+  }
+
+  // 2) Other public admin paths (e.g. logout): always allow through.
+  if (PUBLIC_ADMIN_PATHS.has(pathname)) {
     return NextResponse.next();
   }
 
-  // if the user is trying to access any other admin page
-  if (path.startsWith("/admin") && !path.startsWith("/admin/login")) {
-    if (!token) {
-      return NextResponse.redirect(new URL("/admin/login", request.url));
+  // 3) Every protected /admin route: require a valid session.
+  if (!isAuthenticated) {
+    // Redirect the browser to the login page. `next-url` lets the login page
+    // send the user back where they came from after signing in (optional).
+    const loginUrl = new URL(LOGIN_PATH, request.url);
+    const response = NextResponse.redirect(loginUrl);
+    // Clear the bad cookie so we don't loop verifying the same broken token.
+    if (token) {
+      response.cookies.delete(AUTH_COOKIE_NAME);
     }
-    try {
-      await jwtVerify(token, secretKey);
-      return NextResponse.next();
-    } catch (error) {
-      const response = NextResponse.redirect(new URL("/admin/login", request.url));
-      response.cookies.delete("admin_token");
-      return response;
-    }
+    return response;
   }
 
   return NextResponse.next();
 }
 
 export const config = {
+  // Run only on admin routes. This intentionally matches RSC data requests
+  // (…?_rsc=) for those same paths so protected data can't be fetched without
+  // a session, while leaving _next static assets and public pages untouched.
   matcher: ["/admin/:path*"],
 };
