@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Lock, Mail, ShieldCheck, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation"; 
 import { loginAdmin } from "./actions";
 
 export default function AdminLoginPage() {
@@ -11,8 +10,6 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  
-  const router = useRouter(); 
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,16 +23,17 @@ export default function AdminLoginPage() {
 
     // call server action
     const result = await loginAdmin(formData);
-    
+
     // if there is an error, show the error message and stop loading
     if (result?.error) {
       setErrorMessage(result.error);
       setIsLoading(false);
     } else {
-      // if have no error, then login is successful
-      router.refresh(); 
-      // push to the admin dashboard page
-      router.push("/admin/dashboard");
+      // Success. Use a HARD navigation (full page load) instead of router.push.
+      // This forces the browser to make a brand-new request that includes the
+      // cookie the server action just set — reliable on Vercel/production,
+      // unlike router.push which can race the cookie write.
+      window.location.href = "/admin/dashboard";
     }
   };
 

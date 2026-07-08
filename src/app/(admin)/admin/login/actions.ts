@@ -2,7 +2,6 @@
 
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import {
   AUTH_COOKIE_NAME,
   getAuthCookieOptions,
@@ -29,8 +28,7 @@ export async function loginAdmin(formData: FormData) {
       return { error: "আপনার এই প্যানেলে প্রবেশের অনুমতি নেই!" };
     }
 
-    // Sign the session token using the SHARED helper/secret so the token the
-    // middleware verifies is guaranteed to match what we sign here.
+    // Sign the session token using the SHARED helper/secret.
     const token = await signAdminToken({
       userId: String(user.id),
       role: user.role,
@@ -39,15 +37,17 @@ export async function loginAdmin(formData: FormData) {
     // Set the cookie using the SHARED options (sameSite: "lax", path: "/").
     const cookieStore = await cookies();
     cookieStore.set(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
+
+    // ⚠️ IMPORTANT: do NOT call redirect() here.
+    // Setting a cookie AND redirect()-ing inside the same server action drops
+    // the Set-Cookie header on Vercel/production (a known Next.js issue), so the
+    // cookie never reaches the browser — which is exactly why the session died
+    // only after deploying. Instead we return success and let the CLIENT do a
+    // hard navigation (window.location) so the browser makes a fresh request
+    // that carries the freshly-set cookie.
+    return { success: true };
   } catch (error) {
-    // NOTE: keep this catch for DB/JWT errors only. `redirect()` below MUST stay
-    // outside the try block: redirect() works by throwing a control-flow signal,
-    // and catching it here would swallow the navigation.
     console.error("Admin login failed:", error);
     return { error: "সার্ভারে কোনো সমস্যা হয়েছে। একটু পর আবার চেষ্টা করুন।" };
   }
-
-  // Success — the cookie is now attached to this response. Redirecting from the
-  // server action commits the Set-Cookie header and navigates in one step.
-  redirect("/admin/dashboard");
 }
